@@ -1,50 +1,83 @@
 # Elemental RNG
 
-A weapon gacha forge that runs by double-clicking `index.html`. No build step, no
-dependencies, no frameworks, no network calls. 117 weapons across 9 elements and
-13 rarity tiers, with the rarest sitting at a genuine 1 in 10,000,000.
+A biome-driven weapon gacha forge that runs by double-clicking `index.html`.
+No build step, no dependencies, no frameworks, no network calls. 129 weapons,
+11 biomes, and a rarest tier at a genuine 1 in 10,000,000.
 
 - `index.html` — the game. Open it directly in a browser.
-- `artifact.html` — the same page with the `<!doctype>/<html>/<head>/<body>`
-  wrapper stripped, for publishing as a Claude Artifact. Generated, never edited
-  by hand: run `node tools/build-artifact.js` after changing `index.html`.
+- `artifact.html` — the same page with the wrapper tags stripped, for publishing
+  as a Claude Artifact. Generated: run `node tools/build-artifact.js` after
+  changing `index.html`.
 
 ---
 
-## Scope: the three features that need a server
+## Biomes, and why they don't grant luck
 
-Trading, server-wide announcements and global leaderboards cannot exist in a
-static file. **Resolution (A) — simulated**, as recommended in the brief:
+Every 40 seconds the forge re-reads the sky. Most of the time nothing happens;
+sometimes a biome arrives, repaints the whole page, changes the weather, and
+runs for one to four minutes.
 
-- **40 simulated forgers** roll in the background at plausible rates
-  (`tickSims`, index.html:1449), producing Broadcast entries and populating the
-  Ranks the player competes against.
-- **Trading** is an NPC Collector offering duplicate-for-duplicate swaps
-  (`rollDeals`, index.html:1512).
-- Nothing leaves the browser. The footer and the in-page help both say so.
+The obvious way to make a biome powerful is a luck multiplier. **That is
+arithmetically impossible here.** Luck works by multiplying every tier Rare and
+above and subtracting the surplus from Common. Rare-and-above sums to 3,006,111,
+so a multiplier of `1 + 4,493,889 / 3,006,111 = ×2.4949` empties Common outright.
+A "×5 biome luck" cannot exist against a table that must keep summing to exactly
+10,000,000.
+
+So biomes grant **Resonance** instead (index.html:1313). At Resonance *N* the
+forge draws the rarity table *N* times and keeps the rarest result:
+
+```
+P(tier t or better)  =  1 − (1 − p)^N
+P(exactly tier t)    =  F(t)^N − F(t−1)^N        ← tierChanceAt, index.html:1336
+```
+
+The table is never touched, the Codex odds stay exact, and the effect is
+unbounded in feel. Measured: Celestial goes **1 in 500 → 1 in 84** at Resonance
+×6, and Impossible **1 in 10,000,000 → 1 in 1,666,667**, purely from the formula.
+
+| Biome | Chance per check | Resonance | Element bias | Exclusives |
+|---|---:|---:|---|---|
+| Calm | 54.3% | ×1 | — | — |
+| Emberfall | 1 in 10 | ×2 | Fire | Cinderheart Maul |
+| Verdant | 1 in 11 | ×2 | Earth | Worldroot Stave |
+| Tempest | 1 in 12 | ×2 | Wind | Skybreaker Coil |
+| Glacier | 1 in 13 | ×2 | Ice | Rimebound Sovereign |
+| Abyss | 1 in 16 | ×2 | Water | Crown of the Drowned |
+| Eclipse | 1 in 40 | ×3 | Shadow | Eclipse Herald |
+| Starfall | 1 in 90 | ×3 | Cosmic | Starfall Regalia |
+| Radiance | 1 in 180 | ×4 | Light | Dawnforged Diadem |
+| Null | 1 in 700 | ×5 | — | Null Iterator, The Unwritten |
+| Prismatic | 1 in 3,500 | ×6 | — | Prism Absolute, Spectral Zenith |
+
+**Element bias** changes which weapon, never which tier: the biased element's
+weapon in the drawn tier weighs `BIAS_WEIGHT` (5) against 1 for the other eight,
+so its share goes from 11.1% to 38.5% (`drawWeapon`, index.html:1321).
+
+**Biome exclusives** live at id 910+ and never enter a tier pool. Each resonant
+draw gets its own shot at them, which is what makes a rare biome worth chasing —
+Spectral Zenith is 1 in 900,000 per draw, so at Resonance ×6 inside Prismatic it
+is effectively ~1 in 150,000, and Prismatic itself arrives roughly once every
+39 hours of play.
 
 ---
 
-## Corrections made to the original spec
+## Corrections to the original spec
 
 **The rarity table summed to 100.06111%.** Common through Celestial already
-totalled exactly 100%, so Transcendent through Impossible could never roll. Fixed
-by dropping Common to 44.93889% and using integer weights out of 10,000,000 with
-a single cumulative-sum lookup. Every intended rarity is preserved.
+totalled exactly 100%, so Transcendent through Impossible could never roll.
+Common drops to 44.93889%; weights are integers out of 10,000,000 read through
+one cumulative-sum lookup, asserted at load.
 
-**The weapon roster contradicted itself.** The brief requires every tier to hold
-at least 3 weapons, but also calls Omniverse Edge "the sole Impossible weapon" —
-which needs exactly 1. The ≥3 rule is stated as a hard requirement, so it wins:
-the roster is the full 9 × 13 = 117 grid the brief names as full coverage, which
-also matches its own ~350-byte save-size math. Consequence, stated plainly:
-**Omniverse Edge is the Cosmic capstone at 1 in 90,000,000, not the sole
-Impossible at 1 in 10,000,000.** The tier itself is still 1 in 10,000,000, and
-the takeover screen prints both numbers.
+**The roster contradicted itself:** "every tier ≥ 3 weapons" versus "Omniverse
+Edge is the sole Impossible weapon", which needs exactly 1. The ≥ 3 rule wins,
+so the base roster is the full 9 × 13 = 117 grid the brief calls full coverage.
+Consequence, stated plainly: **Omniverse Edge is the Cosmic capstone at 1 in
+90,000,000, not the sole Impossible at 1 in 10,000,000.** The tier is still
+1 in 10,000,000 and the takeover screen prints both numbers.
 
-**Rebirth keeps one-time unlocks.** The brief says "currency and upgrades reset".
-Taken literally that would confiscate Auto Forge at 1,000 rolls and nobody would
-ever press the button. Currency and the three levelled upgrades reset; unlocks,
-collection, titles, achievements, favourites and streak persist.
+**Rebirth keeps one-time unlocks.** Read literally, "currency and upgrades reset"
+would confiscate Auto Forge at 1,000 rolls and nobody would press the button.
 
 ---
 
@@ -52,53 +85,41 @@ collection, titles, achievements, favourites and streak persist.
 
 ### Rarity table — sums to exactly 10,000,000
 
-| Tier | Weight /1e7 | Percent | Odds | Weapons |
-|---|---:|---:|---|---:|
-| Common | 4,493,889 | 44.93889% | 1 in 2.2 | 9 |
-| Uncommon | 2,500,000 | 25% | 1 in 4 | 9 |
-| Rare | 1,500,000 | 15% | 1 in 6.7 | 9 |
-| Epic | 800,000 | 8% | 1 in 12.5 | 9 |
-| Legendary | 400,000 | 4% | 1 in 25 | 9 |
-| Mythic | 200,000 | 2% | 1 in 50 | 9 |
-| Divine | 80,000 | 0.8% | 1 in 125 | 9 |
-| Celestial | 20,000 | 0.2% | 1 in 500 | 9 |
-| Transcendent | 5,000 | 0.05% | 1 in 2,000 | 9 |
-| Eternal | 1,000 | 0.01% | 1 in 10,000 | 9 |
-| Omega | 100 | 0.001% | 1 in 100,000 | 9 |
-| Secret | 10 | 0.0001% | 1 in 1,000,000 | 9 |
-| Impossible | 1 | 0.00001% | 1 in 10,000,000 | 9 |
+| Tier | Weight /1e7 | Odds | Weapons | Relics | Cutscene |
+|---|---:|---|---:|---:|---:|
+| Common | 4,493,889 | 1 in 2.2 | 9 | — | quick |
+| Uncommon | 2,500,000 | 1 in 4 | 9 | — | quick |
+| Rare | 1,500,000 | 1 in 6.7 | 9 | — | quick |
+| Epic | 800,000 | 1 in 12.5 | 9 | — | quick |
+| Legendary | 400,000 | 1 in 25 | 9 | — | quick |
+| Mythic | 200,000 | 1 in 50 | 9 | — | flash |
+| Divine | 80,000 | 1 in 125 | 9 | — | flash |
+| Celestial | 20,000 | 1 in 500 | 9 | 1 | dim |
+| Transcendent | 5,000 | 1 in 2,000 | 9 | 3 | dim |
+| Eternal | 1,000 | 1 in 10,000 | 9 | 8 | letterbox |
+| Omega | 100 | 1 in 100,000 | 9 | 25 | letterbox |
+| Secret | 10 | 1 in 1,000,000 | 9 | 80 | takeover |
+| Impossible | 1 | 1 in 10,000,000 | 9 | 250 | takeover |
 
-Rolling is two-stage: draw a tier from the weight table, then pick uniformly from
-that tier's nine weapons (`rollOnce`, index.html:1230).
-
-### Weapon IDs
+### Weapon ids
 
 `id === elementIndex * 13 + tierIndex`, assigned once and never reordered
-(index.html:832). Base block 0–116. Reserved blocks: **800–803** rebirth-only,
-**900–903** limited-time event (index.html:839). Neither reserved block enters a
-roll pool, so adding event weapons cannot disturb the weight table or the
-9-per-tier invariant.
+(index.html:797 for the reserved blocks). Base 0–116. Reserved: **800–803**
+rebirth, **900–903** the Smith's stock, **910–921** biome exclusives. Nothing in
+a reserved block enters a roll pool.
 
-### Luck formula and its cap
+The 900-block exists because schema v1 used those ids for seasonal weapons. They
+were kept and repurposed as the Wandering Smith's rotating relic-priced stock, so
+a v1 save carrying one does not silently lose it.
 
-Luck multiplies every tier Rare and above; the surplus is subtracted from Common
-and the array is rebuilt to exactly 10,000,000 by construction, then re-asserted
-(`buildWeights`, index.html:1187).
-
-Rare-and-above sums to 3,006,111. A multiplier of `1 + 4,493,889 / 3,006,111 =
-×2.4949` would empty Common entirely, so **MAX_LUCK is ×2.40** (index.html:1184),
-leaving Common at 285,334 (2.85%). Luck comes from Fortune Sigil (+0.07 × 20
-levels) plus +0.10 per rebirth, clamped to the cap.
-
-Impossible is held at a floor of 1 rather than rounding to zero, so the tier
-never disappears; note that at low luck values `round(1 × L)` still yields 1, so
-small luck bonuses do not move the Impossible weight.
-
-### Economy — costs and curves
+### Economy
 
 Shards per pull by tier: 1 / 3 / 8 / 25 / 80 / 250 / 900 / 3,000 / 12,000 /
-60,000 / 400,000 / 3,000,000 / 25,000,000. First copy of any weapon pays **10×**.
-Expected yield at base luck: **≈47.3 shards per roll**.
+60,000 / 400,000 / 3,000,000 / 25,000,000. First copy pays **10×**. Expected
+yield at base luck and Resonance ×1: **≈47.3 shards per forge**.
+
+**Relics** drop only from Celestial and above (see the table) plus contracts and
+the daily reward. They buy elixirs, lures and the Smith's weapons.
 
 Levelled upgrades are **geometric**, `cost(n) = base × ratio^n`:
 
@@ -109,116 +130,132 @@ Levelled upgrades are **geometric**, `cost(n) = base × ratio^n`:
 | Shard Magnet | 15 | 750 | **×1.50** | +15% shards, additive |
 
 One-time unlocks: Fast Forge 5,000 · Skip Animation 15,000 · Auto Forge 40,000 ·
-Batch ×100 120,000 · Batch ×1000 750,000 (×1000 requires ×100 first).
+Batch ×100 120,000 · Batch ×1000 750,000 (×1000 needs ×100 first).
+
+Consumables (`usePotion`, index.html:1457) stack additively and are capped at
+Resonance ×9 so the best-of-N loop can never become the frame budget:
+
+| Item | Effect | Price |
+|---|---|---|
+| Fortune Elixir | +0.35 luck, 5 min | 180K shards |
+| Greater Fortune Elixir | +0.80 luck, 5 min | 14 relics |
+| Haste Draught | ×0.5 cooldown, 4 min | 120K shards |
+| Resonance Vial | +1 Resonance, 3 min | 10 relics |
+| Greater Resonance | +2 Resonance, 2 min | 26 relics |
+| Biome Lure | re-roll the biome, rares ×10 | 8 relics |
+| Prism Lure | force Eclipse-or-rarer now | 60 relics |
 
 ### Rebirth — exactly what resets
 
-At **1,000 / 10,000 / 100,000 / 1,000,000** forges since the last rebirth.
+At **1,000 / 10,000 / 100,000 / 1,000,000** forges since the last rebirth
+(`doRebirth`, index.html:1490).
 
 | Resets | Never resets |
 |---|---|
-| Shards | The collection and every count in it |
+| Shards | The index and every count in it |
 | Fortune Sigil, Chrono Core, Shard Magnet levels | All five one-time unlocks |
-| The rebirth forge counter | Titles, achievements, favourites |
-| | Login streak, lifetime forge and shard totals |
-
-Each grants +0.10 permanent luck, a title, and an exclusive weapon
-(`doRebirth`, index.html:1306).
+| The rebirth forge counter | Relics, potions, contracts |
+| | Titles, achievements, favourites, streak, lifetime totals |
 
 ---
 
 ## Self-check
 
-Seven assertions run for real at load and are reported in the **Self-Check** tab.
-Nothing is hard-coded to pass; each recomputes its claim from live data, and a
-failure throws where the brief says to throw.
+Eleven assertions run for real at load and are reported in the **Self-Check**
+tab. Nothing is hard-coded to pass; each recomputes its claim from live data.
 
 | # | Claim | Proven by |
 |---|---|---|
-| 1 | Weights sum to exactly 10,000,000 | `buildWeights` throws on mismatch — index.html:1187; asserted at ×1.00 and ×2.40 in index.html:2694 |
-| 2 | Every tier holds ≥3 weapons | `TIER_POOL` built at index.html:857; minimum verified at index.html:2704 (actual: 9 per tier) |
-| 3 | No weapon id duplicated or skipped | id formula at index.html:832; contiguity, reserved-block and unique-name checks at index.html:2713 |
-| 4 | A ×1000 batch fits one frame | `doRoll` aggregates in one loop with no DOM work inside — index.html:2365; timed at index.html:2734 |
-| 5 | Save round-trips; a corrupt save does not wipe | `exportSave`/`importSave` index.html:1143–1150; corrupt path keeps the blob and suspends auto-save at index.html:1121; asserted at index.html:2745 |
-| 6 | Max luck keeps every weight positive | cap at index.html:1184, throw at index.html:1187, ceiling proof at index.html:2758 |
-| 7 | No `setInterval` drives gameplay | `window.setInterval` counted from the first line of the script (index.html:758) and asserted zero at index.html:2772; `loop()` at index.html:2585 holds the only `requestAnimationFrame` |
+| 1 | Weights sum to exactly 10,000,000 | `buildWeights` throws on mismatch — index.html:1274; asserted at ×1.00 and ×2.40 at index.html:3343 |
+| 2 | Every tier holds ≥ 3 weapons | pools built at index.html:830; minimum verified at index.html:3352 (actual: 9) |
+| 3 | No weapon id duplicated or skipped | id formula at index.html:788; contiguity and reserved-block checks at index.html:3360 |
+| 4 | A ×1000 batch fits one frame | `doRoll` aggregates in one loop — index.html:2989; timed at maximum Resonance at index.html:3380 |
+| 5 | Save round-trips; a corrupt save does not wipe | corrupt path keeps the blob and suspends auto-save at index.html:1208; asserted at index.html:3390 |
+| 6 | Max luck keeps every weight positive | cap at index.html:1271, throw at index.html:1274, ceiling proof at index.html:3401 |
+| 7 | No `setInterval` drives gameplay | `window.setInterval` counted from the script's first line (index.html:714), asserted zero at index.html:3412; `loop()` at index.html:3228 holds the only `requestAnimationFrame` |
+| 8 | Biome chances sum below 1, so Calm is a real remainder | `pickBiome` at index.html:1590; asserted at index.html:3423 |
+| 9 | Resonance never edits the weight table | 4,000 draws at ×9 leave all 13 weights identical, and `tierChanceAt` sums to 1 at every N — index.html:3432 |
+| 10 | Biome exclusives never enter a roll pool | pools built from base weapons only; asserted at index.html:3448 |
+| 11 | A v1 save migrates to v2 losslessly | `migrate` at index.html:1098; a full v1 blob is round-tripped and checked field by field at index.html:3464 |
 
-Measured: 1,000 draws in ~0.1 ms; worst frame **1.6 ms** across a 21,000-roll
-session, against a 16.7 ms budget at 60 fps. The Self-Check tab shows the live
-worst frame for the current session.
+### Measured, not asserted
 
-Check 7 is deliberately behavioural rather than a source grep — an earlier
-version grepped the script text and failed on its own explanatory comments.
+Verified in Chromium against the live page:
+
+- **Biome frequencies** — 400,000 picks; every one of the 11 biomes within 4σ of
+  its declared 1-in-N (Prismatic: 111 observed vs 114 expected).
+- **Resonance** — 300,000 forges each at N = 1, 3, 6, 9; empirical tier
+  frequencies match the closed form with worst |z| = 2.7. P(tier or better) is
+  non-decreasing in N for all 13 tiers.
+- **Exclusives** — 0 in 200,000 forges leaked into Calm; 0 in 200,000 leaked
+  across biomes.
+- **Element bias** — 38.5% observed against 38.5% predicted by
+  `BIAS_WEIGHT/(8+BIAS_WEIGHT)`; unbiased picks land at 1/9.
+- **Frames** — 25,000 forges inside Prismatic at Resonance ×6 with full weather:
+  worst frame **1.6 ms** against a 16.7 ms budget.
 
 ---
 
 ## Performance notes
 
-- **×1000 never runs 1000 animations.** All results are computed in one loop,
-  aggregated into a per-tier summary, rendered as **one** panel, and only the
-  single highest-rarity pull in the batch plays the full reveal.
-- **The collection grid is built once** (125 nodes, under the ~200 threshold
-  where virtualising would be needed) and patched cell by cell from a dirty set
-  (`paintCell`, index.html:1675). Filtering hides with `display`; sorting
-  reorders with CSS `order`. The DOM tree is never rebuilt.
-- **One `requestAnimationFrame`** drives everything (index.html:2585). Cooldowns,
-  auto-roll, the 30-second autosave, the simulated forgers, the leaderboard
-  recompute and the Collector refresh are all `performance.now()` accumulators,
-  so none of them drift or double-fire when the tab is throttled. Frame deltas
-  are clamped at 250 ms so a backgrounded tab cannot fast-forward on return.
-- **Auto-roll pauses on tab blur** and resumes on focus (index.html:2662).
-- Roll history and the Broadcast feed are both **ring buffers capped at 50**
-  (index.html:1731, index.html:1470).
-- The AudioContext is built on the first user gesture, not inside a reveal —
-  constructing it mid-roll cost 60 ms of frame time.
-- `--tint` is set on the stage subtree, not `:root`. On `:root` it invalidated
-  every inheriting element and forced a whole-document style recalc on each rung
-  of the reveal ladder.
-- Animation is transform and opacity only. Cooldown bars are `scaleX`, the shake
-  is `translate3d`, shockwaves are `scale`; nothing animates `width`, `top` or
-  `box-shadow`. `prefers-reduced-motion` collapses the reveal to its result.
+- **×1000 never runs 1000 animations.** All results compute in one loop,
+  aggregate into a per-tier summary, render as **one** panel, and only the single
+  best pull plays the reveal — an exclusive outranks a same-tier normal pull.
+- **The index grid is built once** (133 nodes, under the ~200 virtualising
+  threshold) and patched from a dirty set (`paintCell`, index.html:2052).
+  Filtering hides with `display`; sorting reorders with CSS `order`.
+- **Panes render only when visible** (`flushDirty`, index.html:3289).
+- **One `requestAnimationFrame`** drives everything (index.html:3228). Cooldowns,
+  auto-roll, autosave, biome cycling, effect expiry, the simulated forgers, the
+  leaderboard and the Smith are all `performance.now()` accumulators. Frame
+  deltas are clamped at 250 ms so a backgrounded tab cannot fast-forward.
+- **Auto-roll pauses on tab blur** and resumes on focus (index.html:3313).
+- Two canvases share the loop: full-page biome weather (`stepWeather`,
+  index.html:2626) and the stage, which also carries the equipped weapon's
+  orbiting aura (`auraTick`, index.html:2542).
+- The AudioContext is built on first gesture — constructing it mid-roll cost
+  60 ms of frame time.
+- `--tint` is written on the stage subtree, not `:root`. On `:root` it forced a
+  whole-document style recalc on every rung of the reveal ladder. Biome palette
+  *is* set on `:root`, which is fine because it changes at most every 40 s.
+- Animation is transform and opacity only. Cooldown bars are `scaleX`, shake is
+  `translate3d`, shockwaves are `scale`. `prefers-reduced-motion` collapses the
+  reveal to its result.
 
 ## Save system
 
-`localStorage`, single key `elemental-rng.save`, JSON, schema-versioned. Counts
-live in a fixed-length array indexed by weapon id — not name-keyed objects — so a
-full save is well under a kilobyte.
+`localStorage`, single key, JSON, schema v2. Counts live in a fixed-length array
+indexed by weapon id — not name-keyed objects.
 
-`migrate(save)` is keyed on `save.v` from day one (index.html:1045) and
-`sanitize` repairs shape without discarding recognisable progress
-(index.html:1069). Auto-save every 30 s (index.html:2634), plus on
-`visibilitychange` and `beforeunload`.
+`migrate(save)` is keyed on `save.v` from day one and only ever adds containers
+(index.html:1098); `sanitize` repairs shape without discarding recognisable
+progress (index.html:1140). Auto-save every 30 s, plus on `visibilitychange` and
+`beforeunload`. Timed effects deliberately do not survive a reload.
 
-**A corrupt save is never silently wiped.** The damaged blob is left untouched on
-disk, auto-save is suspended, the session runs from a fresh in-memory state, and
-the status line says what happened. Only an explicit typed `RESET` erases
-anything. Export/import moves a save between browsers as a base64 string.
+**A corrupt save is never silently wiped.** The damaged blob is left byte-identical
+on disk, auto-save is suspended, the session runs from a fresh in-memory state,
+and the status line says so. Only a typed `RESET` erases anything.
 
-There is no cloud save. Progress is per-browser and is lost if site data is
-cleared — the Save tab says so in as many words. If `localStorage` is
-unavailable (private mode, sandboxed frame), the game falls back to in-memory
-state and tells you it will not persist.
+There is no cloud save — progress is per-browser. If `localStorage` is blocked,
+the game falls back to in-memory state and says it will not persist.
 
 ---
 
 ## Manual test checklist
 
-1. **Reload persistence** — forge a few times, note shards and collection %,
-   reload. Both survive. Then corrupt the value under `elemental-rng.save` in
-   devtools and reload: the status line reports the damaged save, the blob is
-   still on disk, and waiting past the 30-second autosave does not clobber it.
-2. **×1000 batching** — unlock Batch ×1000, forge, and confirm you get one
-   summary panel and one reveal rather than a thousand of either. The Self-Check
-   tab's live worst-frame readout should stay well under 16 ms.
-3. **Auto-roll on tab blur** — unlock Auto Forge, switch on, change browser tab
-   for several seconds, come back. The forge count does not advance while hidden
-   and the status line reads "Auto paused — tab is in the background."
-4. **Rebirth reset behaviour** — reach 1,000 forges, note your collection %,
-   upgrade levels and unlocks, then rebirth. Shards and the three upgrade levels
-   are zero; the collection %, unlocks, titles and streak are unchanged; luck
-   shows a permanent +0.10.
+1. **Reload persistence** — forge, note shards, relics and index, reload. All
+   survive. Corrupt the `elemental-rng.save` value in devtools and reload: the
+   damaged blob stays on disk and a 30-second autosave does not clobber it.
+2. **×1000 batching** — unlock Batch ×1000 and forge: one summary panel and one
+   reveal, never a thousand of either. The live frame readout stays under 16 ms.
+3. **Auto-roll on tab blur** — switch browser tab for a few seconds. The forge
+   count does not advance and the status line reads "Auto paused".
+4. **Rebirth** — shards and the three upgrade levels go to zero; index, unlocks
+   and relics do not.
+5. **Resonance is honest** — drink a Resonance vial and watch the Codex. The
+   "your odds" column moves; the weight column does not.
 
 ## Controls
 
-Space forges · `1`–`4` set batch size · `A` auto · `M` mute · `S` skip ·
-`Esc` closes overlays.
+Space forges · `1`–`4` batch size · `A` auto · `S` skip · `M` mute ·
+`Esc` closes overlays · click a weapon to equip, shift-click to favourite.
